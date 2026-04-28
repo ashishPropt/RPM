@@ -1,16 +1,26 @@
 <?php
 /**
- * PropTXChange — Flash message helper
+ * PropTXChange — Flash Messages
+ *
+ * One-time messages stored in $_SESSION and consumed on the
+ * next page render. Bootstrapped by index.php.
+ *
  * Usage:
- *   flash_set('success', 'Your account was created.');
- *   $msg = flash_get();  // returns ['type'=>'success','text'=>'...']
+ *   flash_set('success', 'Account created!');
+ *   flash_set('error',   'Something went wrong.');
+ *   flash_set('info',    'Please verify your email.');
+ *
+ *   // In a page template:
+ *   echo flash_html();   // renders and clears the message
  */
 
-function flash_set(string $type, string $text): void {
+function flash_set(string $type, string $text): void
+{
     $_SESSION['_flash'] = ['type' => $type, 'text' => $text];
 }
 
-function flash_get(): ?array {
+function flash_get(): ?array
+{
     if (!empty($_SESSION['_flash'])) {
         $msg = $_SESSION['_flash'];
         unset($_SESSION['_flash']);
@@ -19,7 +29,8 @@ function flash_get(): ?array {
     return null;
 }
 
-function flash_html(): string {
+function flash_html(): string
+{
     $msg = flash_get();
     if (!$msg) return '';
 
@@ -28,11 +39,17 @@ function flash_html(): string {
         'error'   => 'background:rgba(224,92,92,0.1);border:1px solid rgba(224,92,92,0.3);color:var(--red)',
         'info'    => 'background:var(--gold-dim);border:1px solid rgba(201,168,76,0.3);color:var(--gold)',
     ];
-    $icon = ['success' => '&#10003;', 'error' => '&#9888;', 'info' => '&#8505;'];
-    $s = $styles[$msg['type']] ?? $styles['info'];
-    $i = $icon[$msg['type']]   ?? $icon['info'];
+    $icons = [
+        'success' => '&#10003;',
+        'error'   => '&#9888;',
+        'info'    => '&#8505;',
+    ];
 
-    return '<div style="' . $s . ';border-radius:var(--radius);padding:0.85rem 1rem;margin-bottom:1.5rem;font-size:0.875rem;">'
-        . $i . ' ' . htmlspecialchars($msg['text'])
-        . '</div>';
+    $s = $styles[$msg['type']] ?? $styles['info'];
+    $i = $icons[$msg['type']]  ?? $icons['info'];
+
+    return '<div style="' . $s . ';border-radius:var(--radius);padding:0.85rem 1rem;'
+         . 'margin-bottom:1.5rem;font-size:0.875rem;line-height:1.5;">'
+         . $i . ' ' . htmlspecialchars($msg['text'])
+         . '</div>';
 }
