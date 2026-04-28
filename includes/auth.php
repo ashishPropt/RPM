@@ -1,58 +1,61 @@
 <?php
 /**
- * PropTXChange — Auth Helper
+ * PropTXChange — Auth Helper (MySQL / PHP Sessions)
  *
- * Thin wrapper around Supabase Auth REST API.
- * Stores session token in PHP $_SESSION.
+ * Handles login, logout, and session-based role checking.
+ * Passwords are stored as bcrypt hashes in the user_profiles table.
  */
 
 require_once __DIR__ . '/../config/env.php';
+require_once __DIR__ . '/db.php';
 
-class SupabaseAuth {
-    private string $authBase;
-    private string $key;
-
-    public function __construct() {
-        $this->authBase = rtrim(SUPABASE_URL, '/') . '/auth/v1';
-        $this->key      = SUPABASE_ANON_KEY;
-    }
-
-    private function post(string $endpoint, array $body): array {
-        $ch = curl_init($this->authBase . $endpoint);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'apikey: '       . $this->key,
-            'Content-Type: application/json',
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        return ['status' => $httpCode, 'data' => json_decode($response, true) ?? []];
-    }
+class AppAuth {
 
     public function signIn(string $email, string $password): array {
-        $r = $this->post('/token?grant_type=password', [
-            'email'    => $email,
-            'password' => $password,
-        ]);
-        if ($r['status'] === 200 && isset($r['data']['access_token'])) {
-            $_SESSION['access_token'] = $r['data']['access_token'];
-            $_SESSION['user_id']      = $r['data']['user']['id'] ?? null;
-            $_SESSION['user_email']   = $r['data']['user']['email'] ?? null;
-            $_SESSION['user_role']    = $r['data']['user']['user_metadata']['role'] ?? 'tenant';
-            return ['ok' => true, 'role' => $_SESSION['user_role']];
+        $user = db()->queryOne(
+            'SELECT id, role, full_name, email, password_hash, is_active
+             FROM user_profiles
+             WHERE email = ?
+             LIMIT 1',
+            [strtolower(trim($email))]
+        );
+
+        if (!$user) {
+            return ['ok' => false, 'error' => 'No account found with that email address.'];
         }
-        return ['ok' => false, 'error' => $r['data']['error_description'] ?? 'Login failed'];
+
+        if (!$user['is_active']) {
+            return ['ok' => false, 'error' => 'This account has been deactivated.'];
+        }
+
+        if (!password_verify($password, $user['password_hash'])) {
+            return ['ok' => false, 'error' => 'Incorrect password.'];
+        }
+
+        // Regenerate session ID to prevent fixation
+        session_regenerate_id(true);
+
+        $_SESSION['user_id']    = $user['id'];
+        $_SESSION['user_email'] = $user['email'];
+        $_SESSION['user_role']  = $user['role'];
+        $_SESSION['user_name']  = $user['full_name'];
+        $_SESSION['logged_in']  = true;
+
+        return ['ok' => true, 'role' => $user['role']];
     }
 
     public function signOut(): void {
+        $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $p = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000,
+                $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+        }
         session_destroy();
     }
 
     public static function isLoggedIn(): bool {
-        return !empty($_SESSION['access_token']);
+        return !empty($_SESSION['logged_in']);
     }
 
     public static function getRole(): string {
@@ -61,6 +64,10 @@ class SupabaseAuth {
 
     public static function getUserId(): string {
         return $_SESSION['user_id'] ?? '';
+    }
+
+    public static function getUserName(): string {
+        return $_SESSION['user_name'] ?? '';
     }
 
     public static function requireLogin(string $requiredRole = ''): void {
@@ -73,10 +80,15 @@ class SupabaseAuth {
             exit;
         }
     }
+
+    // Utility: hash a new password (use when creating users)
+    public static function hashPassword(string $plaintext): string {
+        return password_hash($plaintext, PASSWORD_BCRYPT, ['cost' => 12]);
+    }
 }
 
-function auth(): SupabaseAuth {
+function auth(): AppAuth {
     static $instance = null;
-    if ($instance === null) $instance = new SupabaseAuth();
+    if ($instance === null) $instance = new AppAuth();
     return $instance;
 }
