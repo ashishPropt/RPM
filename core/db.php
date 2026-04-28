@@ -18,11 +18,32 @@ class MySQLDB
                 PDO::ATTR_EMULATE_PREPARES   => false,
             ]);
         } catch (PDOException $e) {
-            $msg = APP_ENV === 'production'
-                ? 'Database connection failed. Please contact the administrator.'
-                : 'DB Error: ' . $e->getMessage()
-                  . ' — Check credentials in config/config.php';
-            die('<p style="font-family:sans-serif;color:#c00;padding:2rem">' . htmlspecialchars($msg) . '</p>');
+            // Show the full error so we can diagnose — we will lock this down once connected
+            $host  = defined('DB_HOST') ? DB_HOST : '(DB_HOST not defined)';
+            $name  = defined('DB_NAME') ? DB_NAME : '(DB_NAME not defined)';
+            $user  = defined('DB_USER') ? DB_USER : '(DB_USER not defined)';
+            $error = $e->getMessage();
+
+            echo '<!DOCTYPE html><html><head><meta charset="UTF-8">
+                  <title>Database Error</title>
+                  <style>body{font-family:sans-serif;padding:2rem;background:#111;color:#eee}
+                  pre{background:#222;padding:1rem;border-radius:6px;color:#f88;overflow-x:auto}
+                  table{border-collapse:collapse;margin:1rem 0}
+                  td{padding:.4rem 1rem;border:1px solid #333}
+                  .label{color:#aaa}</style></head><body>
+                  <h2>&#9888; Database Connection Failed</h2>
+                  <p>The application could not connect to MySQL. Check the details below:</p>
+                  <table>
+                    <tr><td class="label">DB_HOST</td><td>' . htmlspecialchars($host) . '</td></tr>
+                    <tr><td class="label">DB_NAME</td><td>' . htmlspecialchars($name) . '</td></tr>
+                    <tr><td class="label">DB_USER</td><td>' . htmlspecialchars($user) . '</td></tr>
+                    <tr><td class="label">DB_PASS</td><td>(hidden)</td></tr>
+                  </table>
+                  <p><strong>MySQL error:</strong></p>
+                  <pre>' . htmlspecialchars($error) . '</pre>
+                  <p>Edit <code>config/config.php</code> on the server with your correct cPanel MySQL credentials.</p>
+                  </body></html>';
+            exit;
         }
     }
 
