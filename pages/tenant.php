@@ -1,19 +1,19 @@
 <?php
 /**
  * Tenant Portal.
- * All POST actions redirect (PRG).
+ * All POST actions use PRG (Post/Redirect/Get).
  */
-AppAuth::require('tenant');
+AppAuth::requireRole('tenant');
 $uid = AppAuth::uid();
 
-// --- Handle POST ---
+// ── Handle POST ───────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'submit_repair') {
-        // Re-fetch tenant to get current unit_id
         $t = db()->row(
-            'SELECT id, unit_id FROM tenants WHERE user_id=? LIMIT 1', [$uid]
+            'SELECT id, unit_id FROM tenants WHERE user_id=? LIMIT 1',
+            [$uid]
         );
         if ($t && !empty($t['unit_id'])) {
             $title = trim($_POST['title']       ?? '');
@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      VALUES (?, ?, ?, ?, ?, ?, "open")',
                     [db()->uuid(), $t['id'], $t['unit_id'], $title, $desc, $prio]
                 );
-                flash('success', 'Repair request submitted.');
+                flash('success', 'Repair request submitted successfully.');
             } else {
                 flash('error', 'Please enter a title for your request.');
             }
@@ -37,14 +37,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// --- Mark notification read ---
+// ── Mark notification read ────────────────────────────────────
 if (isset($_GET['mark_read'])) {
-    db()->run('UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?',
-              [$_GET['mark_read'], $uid]);
+    db()->run(
+        'UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?',
+        [$_GET['mark_read'], $uid]
+    );
     redirect('tenant');
 }
 
-// --- Load data (all flat MySQLDB rows) ---
+// ── Load data ─────────────────────────────────────────────────
 $tenant = db()->row(
     'SELECT t.id, t.first_name, t.last_name, t.email, t.phone,
             t.status, t.score, t.score_notes, t.unit_id,
@@ -86,20 +88,29 @@ $documents = $tenant ? db()->rows(
 $current = null;
 foreach ($charges as $ch) {
     if (in_array($ch['status'], ['pending','overdue','partial'], true)) {
-        $current = $ch; break;
+        $current = $ch;
+        break;
     }
 }
 
-$score    = (int)($tenant['score'] ?? 100);
-$sdeg     = (int)round($score / 100 * 360);
-$scolor   = $score >= 90 ? 'var(--green)' : ($score >= 70 ? 'var(--gold)' : 'var(--red)');
-$initials = strtoupper(substr($tenant['first_name'] ?? 'T', 0, 1)
-                      .substr($tenant['last_name']  ?? 'T', 0, 1));
+$score  = (int)($tenant['score'] ?? 100);
+$sdeg   = (int)round($score / 100 * 360);
+$scolor = $score >= 90 ? 'var(--green)' : ($score >= 70 ? 'var(--gold)' : 'var(--red)');
+$initials = strtoupper(
+    substr($tenant['first_name'] ?? 'T', 0, 1) .
+    substr($tenant['last_name']  ?? 'T', 0, 1)
+);
 
 $rbadge = ['open'=>'badge-red','in_process'=>'badge-gold','materials_needed'=>'badge-blue','completed'=>'badge-green'];
 $rdot   = ['open'=>'dot-red','in_process'=>'dot-gold','materials_needed'=>'dot-blue','completed'=>'dot-green'];
 $rlabel = ['open'=>'Open','in_process'=>'In Process','materials_needed'=>'Materials Needed','completed'=>'Completed'];
-$ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_update'=>'var(--blue)','repair_complete'=>'var(--green)','general'=>'var(--muted)'];
+$ncolor = [
+    'rent_reminder'   => 'var(--gold)',
+    'rent_overdue'    => 'var(--red)',
+    'repair_update'   => 'var(--blue)',
+    'repair_complete' => 'var(--green)',
+    'general'         => 'var(--muted)',
+];
 ?>
 
 <div class="container">
@@ -114,23 +125,25 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
 </div>
 <?php else: ?>
 
-<!-- HERO CARD -->
+<!-- TENANT HERO -->
 <div class="tenant-hero">
   <div class="t-avatar"><?= $initials ?></div>
   <div class="t-info">
-    <h2><?= htmlspecialchars($tenant['first_name'].' '.$tenant['last_name']) ?></h2>
+    <h2><?= htmlspecialchars($tenant['first_name'] . ' ' . $tenant['last_name']) ?></h2>
     <p class="muted">
       <?= htmlspecialchars($tenant['unit_number'] ?? 'No unit assigned') ?>
-      <?php if ($tenant['property_name']): ?>&bull; <?= htmlspecialchars($tenant['property_name']) ?><?php endif; ?>
+      <?php if (!empty($tenant['property_name'])): ?>
+        &bull; <?= htmlspecialchars($tenant['property_name']) ?>
+      <?php endif; ?>
     </p>
     <?php if ($current): ?>
-    <span class="badge badge-<?= $current['status']==='overdue'?'red':'gold' ?>" style="margin-top:.4rem;display:inline-block">
+    <span class="badge badge-<?= $current['status']==='overdue' ? 'red' : 'gold' ?>" style="margin-top:.4rem;display:inline-block">
       <?= ucfirst($current['status']) ?>
     </span>
     <?php endif; ?>
   </div>
   <div class="t-score">
-    <div class="score-ring" style="background:conic-gradient(<?= $scolor ?> 0deg <?= $sdeg ?>deg,var(--border) <?= $sdeg ?>deg 360deg)">
+    <div class="score-ring" style="background:conic-gradient(<?= $scolor ?> 0deg <?= $sdeg ?>deg, var(--border) <?= $sdeg ?>deg 360deg)">
       <span><?= $score ?></span>
     </div>
     <div class="score-label">Tenant Score</div>
@@ -145,14 +158,16 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
     <div class="card-head">
       <h3>Rent Status</h3>
       <?php if ($current): ?>
-      <span class="badge badge-<?= $current['status']==='overdue'?'red':'gold' ?>"><?= ucfirst($current['status']) ?></span>
-      <?php else: ?><span class="badge badge-green">All Clear</span><?php endif; ?>
+      <span class="badge badge-<?= $current['status']==='overdue' ? 'red' : 'gold' ?>"><?= ucfirst($current['status']) ?></span>
+      <?php else: ?>
+      <span class="badge badge-green">All Clear</span>
+      <?php endif; ?>
     </div>
     <div class="card-body">
       <?php if ($current): ?>
-      <div class="rent-amount">$<?= number_format((float)$current['amount'],0) ?></div>
+      <div class="rent-amount">$<?= number_format((float)$current['amount'], 0) ?></div>
       <div class="rent-due muted">Due <?= date('M j, Y', strtotime($current['due_date'])) ?></div>
-      <?php if ($current['status']==='overdue'): ?>
+      <?php if ($current['status'] === 'overdue'): ?>
       <div class="alert alert-error" style="margin-top:.75rem">Your payment is overdue. Please contact your property manager.</div>
       <?php endif; ?>
       <?php else: ?>
@@ -161,11 +176,13 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
       <?php if (!empty($charges)): ?>
       <div style="margin-top:1.25rem">
         <div class="label-sm muted" style="margin-bottom:.5rem">PAYMENT HISTORY</div>
-        <?php foreach (array_slice($charges,0,4) as $ch): ?>
+        <?php foreach (array_slice($charges, 0, 4) as $ch): ?>
         <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:.4rem 0;border-bottom:1px solid var(--border)">
-          <span class="muted"><?= $ch['charge_month'] ?></span>
-          <span class="mono">$<?= number_format((float)$ch['amount'],0) ?></span>
-          <span class="badge badge-<?= $ch['status']==='paid'?'green':($ch['status']==='overdue'?'red':'gold') ?>"><?= ucfirst($ch['status']) ?></span>
+          <span class="muted"><?= htmlspecialchars($ch['charge_month']) ?></span>
+          <span class="mono">$<?= number_format((float)$ch['amount'], 0) ?></span>
+          <span class="badge badge-<?= $ch['status']==='paid' ? 'green' : ($ch['status']==='overdue' ? 'red' : 'gold') ?>">
+            <?= ucfirst($ch['status']) ?>
+          </span>
         </div>
         <?php endforeach; ?>
       </div>
@@ -173,11 +190,11 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
     </div>
   </div>
 
-  <!-- LEASE -->
+  <!-- LEASE SUMMARY -->
   <div class="card">
     <div class="card-head">
       <h3>Lease Summary</h3>
-      <span class="badge badge-<?= $lease?'green':'gray' ?>"><?= $lease?'Active':'No Lease' ?></span>
+      <span class="badge badge-<?= $lease ? 'green' : 'gray' ?>"><?= $lease ? 'Active' : 'No Lease' ?></span>
     </div>
     <div class="card-body">
       <?php if ($lease): ?>
@@ -187,8 +204,8 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
         ['Property',     $tenant['property_address']  ?? '—'],
         ['Start',        date('M j, Y', strtotime($lease['start_date']))],
         ['End',          date('M j, Y', strtotime($lease['end_date']))],
-        ['Monthly Rent', '$'.number_format((float)$lease['monthly_rent'],0)],
-        ['Deposit',      '$'.number_format((float)($lease['security_deposit']??0),0)],
+        ['Monthly Rent', '$' . number_format((float)$lease['monthly_rent'], 0)],
+        ['Deposit',      '$' . number_format((float)($lease['security_deposit'] ?? 0), 0)],
       ];
       foreach ($rows as [$label, $val]): ?>
       <div style="display:flex;justify-content:space-between;font-size:.875rem;padding:.6rem 0;border-bottom:1px solid var(--border)">
@@ -214,21 +231,19 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
     </div>
     <div class="card-body">
 
-      <!-- SUBMIT FORM (hidden by default) -->
-      <div id="repairForm" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:1rem;margin-bottom:1rem">
+      <!-- Submit form (hidden by default) -->
+      <div id="repairForm" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:1rem;margin-bottom:1rem">
         <form method="POST" action="index.php?page=tenant">
           <input type="hidden" name="action" value="submit_repair">
           <div class="form-group">
             <label>Issue Title</label>
-            <input type="text" name="title" placeholder="e.g. Leaking kitchen faucet" required
-                   style="width:100%">
+            <input type="text" name="title" placeholder="e.g. Leaking kitchen faucet" required style="width:100%">
           </div>
-          <div class="form-group">
+          <div class="form-group" style="margin-top:.75rem">
             <label>Description</label>
-            <textarea name="description" rows="3" placeholder="Describe the issue..."
-                      style="width:100%;resize:vertical"></textarea>
+            <textarea name="description" rows="3" placeholder="Describe the issue..." style="width:100%;resize:vertical"></textarea>
           </div>
-          <div class="form-group">
+          <div class="form-group" style="margin-top:.75rem">
             <label>Priority</label>
             <select name="priority" style="width:100%">
               <option value="low">Low</option>
@@ -237,8 +252,10 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
               <option value="emergency">Emergency</option>
             </select>
           </div>
-          <button type="submit" class="btn btn-primary">Submit Request</button>
-          <button type="button" class="btn btn-ghost" onclick="toggleRepairForm()" style="margin-left:.5rem">Cancel</button>
+          <div style="display:flex;gap:.6rem;margin-top:1rem">
+            <button type="submit" class="btn btn-primary">Submit Request</button>
+            <button type="button" class="btn btn-ghost" onclick="toggleRepairForm()">Cancel</button>
+          </div>
         </form>
       </div>
 
@@ -270,9 +287,9 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
   <div class="card">
     <div class="card-head">
       <h3>Notifications</h3>
-      <?php $unread = count(array_filter($notifications, fn($n)=>!(bool)$n['is_read'])); ?>
-      <span class="badge badge-<?= $unread>0?'red':'green' ?>">
-        <?= $unread>0 ? $unread.' unread' : 'All read' ?>
+      <?php $unread = count(array_filter($notifications, fn($n) => !(bool)$n['is_read'])); ?>
+      <span class="badge badge-<?= $unread > 0 ? 'red' : 'green' ?>">
+        <?= $unread > 0 ? $unread . ' unread' : 'All read' ?>
       </span>
     </div>
     <div class="card-body">
@@ -302,7 +319,10 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
 <!-- DOCUMENTS -->
 <?php if (!empty($documents)): ?>
 <div class="card mt">
-  <div class="card-head"><h3>Documents</h3><span class="badge badge-gold"><?= count($documents) ?></span></div>
+  <div class="card-head">
+    <h3>Documents</h3>
+    <span class="badge badge-gold"><?= count($documents) ?></span>
+  </div>
   <div class="card-body">
     <?php foreach ($documents as $d): ?>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px solid var(--border)">
@@ -317,7 +337,7 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
 </div>
 <?php endif; ?>
 
-<!-- SCORE -->
+<!-- SCORE BAR -->
 <div class="card mt">
   <div class="card-head"><h3>Tenant Score</h3></div>
   <div class="card-body">
@@ -327,11 +347,11 @@ $ncolor = ['rent_reminder'=>'var(--gold)','rent_overdue'=>'var(--red)','repair_u
       </div>
       <span class="mono" style="color:<?= $scolor ?>;font-weight:600"><?= $score ?>/100</span>
     </div>
-    <?php if ($tenant['score_notes']): ?>
+    <?php if (!empty($tenant['score_notes'])): ?>
     <p class="muted" style="margin-top:.75rem;font-size:.875rem"><?= htmlspecialchars($tenant['score_notes']) ?></p>
     <?php endif; ?>
   </div>
 </div>
 
-<?php endif; // end tenant check ?>
+<?php endif; // end $tenant check ?>
 </div>

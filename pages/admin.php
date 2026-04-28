@@ -1,27 +1,26 @@
 <?php
 /**
  * Admin Dashboard.
- * All POST actions redirect (PRG) so refresh doesn't resubmit.
+ * All POST actions use PRG (Post/Redirect/Get) so refresh never resubmits.
  */
-AppAuth::require('admin');
+AppAuth::requireRole('admin');
 $aid = AppAuth::uid();
 
-// --- Handle POST actions ---
+// ── Handle POST actions ───────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'record_payment') {
         $ok = db()->transaction(function ($db) use ($aid) {
-            $pid = $db->uuid();
             $db->run(
                 'INSERT INTO rent_payments
                     (id, charge_id, tenant_id, amount_paid, payment_date, payment_method, recorded_by)
                  VALUES (?, ?, ?, ?, CURDATE(), ?, ?)',
                 [
-                    $pid,
+                    $db->uuid(),
                     $_POST['charge_id'],
                     $_POST['tenant_id'],
-                    (float)$_POST['amount'],
+                    (float)($_POST['amount'] ?? 0),
                     $_POST['method'] ?? 'manual',
                     $aid,
                 ]
@@ -31,19 +30,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$_POST['charge_id']]
             );
         });
-        flash($ok ? 'success' : 'error', $ok ? 'Payment recorded.' : 'Payment failed.');
+        flash($ok ? 'success' : 'error', $ok ? 'Payment recorded successfully.' : 'Payment could not be saved. Check logs.');
         redirect('admin');
     }
 
     if ($action === 'update_repair') {
         $rid    = $_POST['request_id'] ?? '';
-        $status = $_POST['new_status'] ?? 'open';
+        $status = $_POST['new_status']  ?? 'open';
         $old    = db()->row('SELECT status FROM maintenance_requests WHERE id=?', [$rid]);
         db()->transaction(function ($db) use ($rid, $status, $aid, $old) {
             if ($status === 'completed') {
-                $db->run('UPDATE maintenance_requests SET status=?, updated_at=NOW(), completed_at=NOW() WHERE id=?', [$status, $rid]);
+                $db->run(
+                    'UPDATE maintenance_requests SET status=?, updated_at=NOW(), completed_at=NOW() WHERE id=?',
+                    [$status, $rid]
+                );
             } else {
-                $db->run('UPDATE maintenance_requests SET status=?, updated_at=NOW(), completed_at=NULL WHERE id=?', [$status, $rid]);
+                $db->run(
+                    'UPDATE maintenance_requests SET status=?, updated_at=NOW(), completed_at=NULL WHERE id=?',
+                    [$status, $rid]
+                );
             }
             $db->run(
                 'INSERT INTO maintenance_updates (id, request_id, updated_by, old_status, new_status, note)
@@ -56,12 +61,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// --- Load data ---
+// ── Load dashboard data ───────────────────────────────────────
 $stats = [
-    'properties' => db()->row('SELECT COUNT(*) c FROM properties   WHERE is_active=1')['c'] ?? 0,
-    'tenants'    => db()->row('SELECT COUNT(*) c FROM tenants       WHERE status="active"')['c'] ?? 0,
+    'properties' => (int)(db()->row('SELECT COUNT(*) c FROM properties WHERE is_active=1')['c'] ?? 0),
+    'tenants'    => (int)(db()->row('SELECT COUNT(*) c FROM tenants    WHERE status="active"')['c'] ?? 0),
     'overdue'    => db()->row('SELECT COUNT(*) c, COALESCE(SUM(amount),0) t FROM rent_charges WHERE status="overdue"'),
-    'repairs'    => db()->row('SELECT COUNT(*) c FROM maintenance_requests WHERE status NOT IN ("completed","cancelled")')['c'] ?? 0,
+    'repairs'    => (int)(db()->row('SELECT COUNT(*) c FROM maintenance_requests WHERE status NOT IN ("completed","cancelled")')['c'] ?? 0),
 ];
 
 $tenants = db()->rows(
@@ -81,8 +86,8 @@ $charges = db()->rows(
             CONCAT(t.first_name," ",t.last_name) AS tenant_name,
             u.unit_number
      FROM   rent_charges rc
-     JOIN   tenants     t  ON t.id  = rc.tenant_id
-     LEFT JOIN units    u  ON u.id  = t.unit_id
+     JOIN   tenants      t ON t.id = rc.tenant_id
+     LEFT JOIN units     u ON u.id = t.unit_id
      ORDER BY rc.due_date DESC'
 );
 
@@ -96,7 +101,7 @@ $repairs = db()->rows(
      ORDER BY mr.created_at DESC'
 );
 
-$statusBadge = [
+$chargeBadge = [
     'paid'=>'badge-green','pending'=>'badge-gold','overdue'=>'badge-red',
     'partial'=>'badge-blue','waived'=>'badge-gray',
 ];
@@ -137,8 +142,8 @@ $repairLabel = [
   </div>
   <div class="kpi-card kpi-red">
     <div class="kpi-label">Overdue</div>
-    <div class="kpi-value"><?= $stats['overdue']['c'] ?></div>
-    <div class="kpi-sub">$<?= number_format((float)($stats['overdue']['t'] ?? 0), 0) ?></div>
+    <div class="kpi-value"><?= (int)($stats['overdue']['c'] ?? 0) ?></div>
+    <div class="kpi-sub">$<?= number_format((float)($stats['overdue']['t'] ?? 0), 0) ?> outstanding</div>
   </div>
   <div class="kpi-card kpi-blue">
     <div class="kpi-label">Open Repairs</div>
@@ -146,27 +151,27 @@ $repairLabel = [
   </div>
 </div>
 
-<!-- TENANTS -->
+<!-- TENANTS TABLE -->
 <div class="card mt">
   <div class="card-head">
     <h2>Tenants</h2>
     <span class="badge badge-gold"><?= count($tenants) ?></span>
   </div>
   <?php if (empty($tenants)): ?>
-  <p class="card-empty">No active tenants. Add data via the database.</p>
+  <p class="card-empty">No active tenants yet. Once a tenant registers and is assigned a unit they will appear here.</p>
   <?php else: ?>
   <div class="table-wrap">
     <table>
-      <thead><tr>
-        <th>Name</th><th>Unit</th><th>Property</th><th>Rent/mo</th><th>Score</th>
-      </tr></thead>
+      <thead>
+        <tr><th>Name</th><th>Unit</th><th>Property</th><th>Rent/mo</th><th>Score</th></tr>
+      </thead>
       <tbody>
         <?php foreach ($tenants as $t):
-          $sc = (int)($t['score'] ?? 100);
+          $sc     = (int)($t['score'] ?? 100);
           $sc_cls = $sc >= 90 ? 'good' : ($sc >= 70 ? 'ok' : 'bad');
         ?>
         <tr>
-          <td><?= htmlspecialchars($t['first_name'].' '.$t['last_name']) ?></td>
+          <td><?= htmlspecialchars($t['first_name'] . ' ' . $t['last_name']) ?></td>
           <td><?= htmlspecialchars($t['unit_number']    ?? '—') ?></td>
           <td class="muted"><?= htmlspecialchars($t['property_name'] ?? '—') ?></td>
           <td class="mono">$<?= number_format((float)($t['monthly_rent'] ?? 0), 0) ?></td>
@@ -186,16 +191,16 @@ $repairLabel = [
     <span class="badge badge-gold"><?= count($charges) ?></span>
   </div>
   <?php if (empty($charges)): ?>
-  <p class="card-empty">No rent charges on record.</p>
+  <p class="card-empty">No rent charges on record yet.</p>
   <?php else: ?>
   <div class="table-wrap">
     <table>
-      <thead><tr>
-        <th>Tenant</th><th>Unit</th><th>Month</th><th>Amount</th><th>Due</th><th>Status</th><th>Action</th>
-      </tr></thead>
+      <thead>
+        <tr><th>Tenant</th><th>Unit</th><th>Month</th><th>Amount</th><th>Due</th><th>Status</th><th>Action</th></tr>
+      </thead>
       <tbody>
         <?php foreach ($charges as $c):
-          $b = $statusBadge[$c['status']] ?? 'badge-gray';
+          $b = $chargeBadge[$c['status']] ?? 'badge-gray';
         ?>
         <tr>
           <td><?= htmlspecialchars($c['tenant_name']) ?></td>
@@ -226,14 +231,14 @@ $repairLabel = [
   <?php endif; ?>
 </div>
 
-<!-- REPAIRS -->
+<!-- MAINTENANCE REQUESTS -->
 <div class="card mt">
   <div class="card-head">
     <h2>Maintenance Requests</h2>
     <span class="badge badge-gold"><?= count($repairs) ?></span>
   </div>
   <?php if (empty($repairs)): ?>
-  <p class="card-empty">No maintenance requests on record.</p>
+  <p class="card-empty">No maintenance requests on record yet.</p>
   <?php else: ?>
   <div class="repair-list">
     <?php foreach ($repairs as $r):
@@ -247,9 +252,9 @@ $repairLabel = [
       <div class="repair-info">
         <div class="repair-title"><?= htmlspecialchars($r['title']) ?></div>
         <div class="repair-meta muted">
-          <?= htmlspecialchars($r['tenant_name']) ?> &bull;
-          Unit <?= htmlspecialchars($r['unit_number'] ?? '—') ?> &bull;
-          <?= date('M j', strtotime($r['submitted_at'])) ?>
+          <?= htmlspecialchars($r['tenant_name']) ?>
+          &bull; Unit <?= htmlspecialchars($r['unit_number'] ?? '—') ?>
+          &bull; <?= date('M j', strtotime($r['submitted_at'])) ?>
         </div>
       </div>
       <span class="badge <?= $b ?>"><?= $lbl ?></span>
@@ -258,9 +263,9 @@ $repairLabel = [
         <input type="hidden" name="action"     value="update_repair">
         <input type="hidden" name="request_id" value="<?= htmlspecialchars($r['id']) ?>">
         <select name="new_status" class="select-sm">
-          <option value="open"             <?= $st==='open'             ?'selected':'' ?>>Open</option>
-          <option value="in_process"       <?= $st==='in_process'       ?'selected':'' ?>>In Process</option>
-          <option value="materials_needed" <?= $st==='materials_needed' ?'selected':'' ?>>Materials Needed</option>
+          <option value="open"             <?= $st==='open'             ? 'selected':'' ?>>Open</option>
+          <option value="in_process"       <?= $st==='in_process'       ? 'selected':'' ?>>In Process</option>
+          <option value="materials_needed" <?= $st==='materials_needed' ? 'selected':'' ?>>Materials Needed</option>
           <option value="completed">Completed</option>
         </select>
         <button type="submit" class="btn btn-sm btn-primary">Update</button>

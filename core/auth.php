@@ -29,10 +29,10 @@ class AppAuth
         }
 
         session_regenerate_id(true);
-        $_SESSION['uid']   = $user['id'];
-        $_SESSION['role']  = $user['role'];
-        $_SESSION['name']  = $user['full_name'];
-        $_SESSION['auth']  = true;
+        $_SESSION['uid']  = $user['id'];
+        $_SESSION['role'] = $user['role'];
+        $_SESSION['name'] = $user['full_name'];
+        $_SESSION['auth'] = true;
 
         return ['ok' => true, 'role' => $user['role']];
     }
@@ -49,19 +49,23 @@ class AppAuth
         session_destroy();
     }
 
-    public static function check(): bool   { return !empty($_SESSION['auth']); }
-    public static function role(): string  { return $_SESSION['role'] ?? ''; }
-    public static function uid(): string   { return $_SESSION['uid']  ?? ''; }
-    public static function name(): string  { return $_SESSION['name'] ?? ''; }
+    public static function check(): bool  { return !empty($_SESSION['auth']); }
+    public static function role(): string { return $_SESSION['role'] ?? ''; }
+    public static function uid(): string  { return $_SESSION['uid']  ?? ''; }
+    public static function name(): string { return $_SESSION['name'] ?? ''; }
 
-    /** Redirect to login if not authenticated, or wrong role. */
-    public static function require(string $role = ''): void
+    /**
+     * requireRole() — redirect to login if not authenticated, or to own
+     * dashboard if wrong role.
+     * NOTE: cannot be named 'require' — that is a reserved PHP keyword.
+     */
+    public static function requireRole(string $role = ''): void
     {
         if (!self::check()) {
             flash('error', 'Please sign in to continue.');
             redirect('login');
         }
-        if ($role && self::role() !== $role) {
+        if ($role !== '' && self::role() !== $role) {
             redirect(self::role() === 'admin' ? 'admin' : 'tenant');
         }
     }
